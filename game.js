@@ -22,18 +22,9 @@ zigzagImg.src = "assets/zigzag.png";
 const heavyImg = new Image();
 heavyImg.src = "assets/heavy.png";
 
-/* ================= LOAD SOUND ================= */
+/* ================= LOAD SOUNDS ================= */
 const explosionSound = new Audio("assets/explosion.mp3");
-explosionSound.volume = 0.10;
-
-/* Mobile audio unlock */
-document.body.addEventListener(
-  "touchstart",
-  () => {
-    explosionSound.play().then(() => explosionSound.pause()).catch(() => {});
-  },
-  { once: true }
-);
+explosionSound.volume = 0.3;
 
 /* ================= GAME STATE ================= */
 let gameOver = false;
@@ -66,25 +57,53 @@ canvas.addEventListener("mousemove", (e) => {
 
 function clampPlayer() {
   if (player.x < 0) player.x = 0;
-  if (player.x + player.width > canvas.width) {
-    player.x = canvas.width - player.width;
-  }
+  if (player.x + player.width > canvas.width) player.x = canvas.width - player.width;
 }
 
 /* ================= BULLETS ================= */
 const bullets = [];
-let bulletSpeed = 12;
+let bulletSpeed = 8;  
+let canShoot = true;  
+const shootDelay = 160; 
 
 function shootBullet() {
-  if (gameOver) return;
+  if (gameOver || !canShoot) return;
+
   bullets.push({
     x: player.x + player.width / 2 - 3,
     y: player.y,
     w: 6,
     h: 18
   });
+
+  canShoot = false;
+  setTimeout(() => { canShoot = true; }, shootDelay);
 }
-let fireLoop = setInterval(shootBullet, 160);
+
+let fireLoop = setInterval(shootBullet, shootDelay);
+
+/* ================= STARS ================= */
+const stars = [];
+for (let i = 0; i < 150; i++) {
+  stars.push({
+    x: Math.random() * canvas.width,
+    y: Math.random() * canvas.height,
+    radius: Math.random() * 1.5,
+    alpha: Math.random(),
+    speed: Math.random() * 0.5
+  });
+}
+
+function drawStars() {
+  stars.forEach(s => {
+    s.y += s.speed;
+    if (s.y > canvas.height) s.y = 0;
+    ctx.fillStyle = `rgba(255,255,255,${s.alpha})`;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
 
 /* ================= ENEMIES ================= */
 const enemies = [];
@@ -96,10 +115,10 @@ function spawnEnemy() {
 
   const r = Math.random();
   let enemy = {
-    x: Math.random() * (canvas.width - 60),
+    x: Math.random() * (canvas.width - 72),
     y: -80,
-    w: 60,
-    h: 60,
+    w: 72,
+    h: 72,
     speed: baseEnemySpeed + Math.random() * 2,
     dx: 0,
     type: "normal",
@@ -116,7 +135,7 @@ function spawnEnemy() {
   if (r >= 0.85) {
     enemy.type = "heavy";
     enemy.img = heavyImg;
-    enemy.w = enemy.h = 80;
+    enemy.w = enemy.h = 95; 
     enemy.speed -= 1;
   }
 
@@ -128,6 +147,9 @@ let enemySpawner = setInterval(spawnEnemy, spawnRate);
 const explosions = [];
 
 function createExplosion(x, y) {
+  explosionSound.currentTime = 0;
+  explosionSound.play();
+
   for (let i = 0; i < 20; i++) {
     explosions.push({
       x,
@@ -170,10 +192,22 @@ setInterval(() => {
 
 /* ================= GAME LOOP ================= */
 function gameLoop() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  // Background gradient
+  const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  gradient.addColorStop(0, "#1e0033"); // deep purple top
+  gradient.addColorStop(1, "#4b0082"); // violet bottom
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+  drawStars();
+
+  // Player glow
+  ctx.shadowColor = "cyan";
+  ctx.shadowBlur = 15;
   player.y = canvas.height - player.height - 20;
   ctx.drawImage(playerImg, player.x, player.y, player.width, player.height);
+
+  ctx.shadowBlur = 0; // reset shadow
 
   // Bullets
   ctx.fillStyle = "red";
@@ -192,33 +226,27 @@ function gameLoop() {
       if (e.x < 0 || e.x + e.w > canvas.width) e.dx *= -1;
     }
 
+    // Enemy glow
+    ctx.shadowColor = "magenta";
+    ctx.shadowBlur = 12;
     ctx.drawImage(e.img, e.x, e.y, e.w, e.h);
+    ctx.shadowBlur = 0;
 
     bullets.forEach((b, bi) => {
       if (isColliding({ ...b, w: b.w, h: b.h }, e)) {
         createExplosion(e.x + e.w / 2, e.y + e.h / 2);
-
-        // 🔊 Explosion sound
-        const ex = explosionSound.cloneNode();
-        ex.play();
-
         bullets.splice(bi, 1);
         enemies.splice(i, 1);
         score += e.type === "heavy" ? 30 : 15;
       }
     });
 
-    if (
-      isColliding(
-        { x: player.x, y: player.y, w: player.width, h: player.height },
-        e
-      )
-    ) {
+    if (isColliding({ x: player.x, y: player.y, w: player.width, h: player.height }, e)) {
       endGame();
     }
   });
 
-  // Explosion particles
+  // Explosions
   explosions.forEach((p, i) => {
     p.x += p.dx;
     p.y += p.dy;
@@ -270,18 +298,10 @@ function drawGameOver() {
 
   ctx.font = "30px Arial";
   ctx.fillText("Score: " + score, canvas.width / 2, canvas.height / 2 - 20);
-  ctx.fillText(
-    "High Score: " + highScore,
-    canvas.width / 2,
-    canvas.height / 2 + 25
-  );
+  ctx.fillText("High Score: " + highScore, canvas.width / 2, canvas.height / 2 + 25);
 
   ctx.font = "20px Arial";
-  ctx.fillText(
-    "Tap to Restart",
-    canvas.width / 2,
-    canvas.height / 2 + 85
-  );
+  ctx.fillText("Tap to Restart", canvas.width / 2, canvas.height / 2 + 85);
 }
 
 /* ================= RESTART ================= */
