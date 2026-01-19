@@ -22,6 +22,19 @@ zigzagImg.src = "assets/zigzag.png";
 const heavyImg = new Image();
 heavyImg.src = "assets/heavy.png";
 
+/* ================= LOAD SOUND ================= */
+const explosionSound = new Audio("assets/explosion.mp3");
+explosionSound.volume = 0.10;
+
+/* Mobile audio unlock */
+document.body.addEventListener(
+  "touchstart",
+  () => {
+    explosionSound.play().then(() => explosionSound.pause()).catch(() => {});
+  },
+  { once: true }
+);
+
 /* ================= GAME STATE ================= */
 let gameOver = false;
 let difficulty = 1;
@@ -60,7 +73,7 @@ function clampPlayer() {
 
 /* ================= BULLETS ================= */
 const bullets = [];
-let bulletSpeed = 10;
+let bulletSpeed = 12;
 
 function shootBullet() {
   if (gameOver) return;
@@ -71,7 +84,7 @@ function shootBullet() {
     h: 18
   });
 }
-let fireLoop = setInterval(shootBullet, 350);
+let fireLoop = setInterval(shootBullet, 160);
 
 /* ================= ENEMIES ================= */
 const enemies = [];
@@ -83,10 +96,10 @@ function spawnEnemy() {
 
   const r = Math.random();
   let enemy = {
-    x: Math.random() * (canvas.width - 72),
+    x: Math.random() * (canvas.width - 60),
     y: -80,
-    w: 72,
-    h: 72,
+    w: 60,
+    h: 60,
     speed: baseEnemySpeed + Math.random() * 2,
     dx: 0,
     type: "normal",
@@ -103,42 +116,13 @@ function spawnEnemy() {
   if (r >= 0.85) {
     enemy.type = "heavy";
     enemy.img = heavyImg;
-    enemy.w = enemy.h = 95;
+    enemy.w = enemy.h = 80;
     enemy.speed -= 1;
   }
 
   enemies.push(enemy);
 }
 let enemySpawner = setInterval(spawnEnemy, spawnRate);
-
-/* ================= STARS ================= */
-const stars = [];
-for (let i = 0; i < 200; i++) {
-  stars.push({
-    x: Math.random() * canvas.width,
-    y: Math.random() * canvas.height,
-    size: Math.random() * 2 + 1,
-    speed: Math.random() * 1.5 + 0.5,
-    alpha: Math.random() * 0.5 + 0.5,
-    alphaDir: Math.random() > 0.5 ? 0.01 : -0.01 // for twinkling
-  });
-}
-
-function drawStars() {
-  stars.forEach((s) => {
-    ctx.fillStyle = `rgba(255,255,255,${s.alpha})`;
-    ctx.beginPath();
-    ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
-    ctx.fill();
-
-    s.y += s.speed;
-    if (s.y > canvas.height) s.y = 0;
-
-    // twinkle
-    s.alpha += s.alphaDir;
-    if (s.alpha >= 1 || s.alpha <= 0.2) s.alphaDir *= -1;
-  });
-}
 
 /* ================= EXPLOSIONS ================= */
 const explosions = [];
@@ -186,22 +170,10 @@ setInterval(() => {
 
 /* ================= GAME LOOP ================= */
 function gameLoop() {
-  // Gradient background
-  const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-  gradient.addColorStop(0, "#0f0c29");
-  gradient.addColorStop(1, "#302b63");
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Draw stars first
-  drawStars();
-
-  // Player position fixed at bottom
   player.y = canvas.height - player.height - 20;
-  ctx.shadowColor = "cyan";
-  ctx.shadowBlur = 15;
   ctx.drawImage(playerImg, player.x, player.y, player.width, player.height);
-  ctx.shadowBlur = 0; // reset
 
   // Bullets
   ctx.fillStyle = "red";
@@ -220,32 +192,38 @@ function gameLoop() {
       if (e.x < 0 || e.x + e.w > canvas.width) e.dx *= -1;
     }
 
-    // enemy glow
-    ctx.shadowColor = "red";
-    ctx.shadowBlur = 10;
     ctx.drawImage(e.img, e.x, e.y, e.w, e.h);
-    ctx.shadowBlur = 0;
 
     bullets.forEach((b, bi) => {
       if (isColliding({ ...b, w: b.w, h: b.h }, e)) {
         createExplosion(e.x + e.w / 2, e.y + e.h / 2);
+
+        // 🔊 Explosion sound
+        const ex = explosionSound.cloneNode();
+        ex.play();
+
         bullets.splice(bi, 1);
         enemies.splice(i, 1);
         score += e.type === "heavy" ? 30 : 15;
       }
     });
 
-    if (isColliding({ x: player.x, y: player.y, w: player.width, h: player.height }, e)) {
+    if (
+      isColliding(
+        { x: player.x, y: player.y, w: player.width, h: player.height },
+        e
+      )
+    ) {
       endGame();
     }
   });
 
-  // Explosions
+  // Explosion particles
   explosions.forEach((p, i) => {
     p.x += p.dx;
     p.y += p.dy;
     p.life--;
-    ctx.fillStyle = `hsl(${Math.random() * 360}, 100%, 50%)`;
+    ctx.fillStyle = "orange";
     ctx.fillRect(p.x, p.y, 4, 4);
     if (p.life <= 0) explosions.splice(i, 1);
   });
@@ -254,12 +232,9 @@ function gameLoop() {
   ctx.fillStyle = "white";
   ctx.font = "20px Arial";
   ctx.textAlign = "left";
-  ctx.shadowColor = "cyan";
-  ctx.shadowBlur = 8;
   ctx.fillText("Score: " + score, 20, 30);
   ctx.textAlign = "right";
   ctx.fillText("High: " + highScore, canvas.width - 20, 30);
-  ctx.shadowBlur = 0;
 
   if (gameOver) {
     drawGameOver();
@@ -295,12 +270,21 @@ function drawGameOver() {
 
   ctx.font = "30px Arial";
   ctx.fillText("Score: " + score, canvas.width / 2, canvas.height / 2 - 20);
-  ctx.fillText("High Score: " + highScore, canvas.width / 2, canvas.height / 2 + 25);
+  ctx.fillText(
+    "High Score: " + highScore,
+    canvas.width / 2,
+    canvas.height / 2 + 25
+  );
 
   ctx.font = "20px Arial";
-  ctx.fillText("Tap to Restart", canvas.width / 2, canvas.height / 2 + 85);
+  ctx.fillText(
+    "Tap to Restart",
+    canvas.width / 2,
+    canvas.height / 2 + 85
+  );
 }
 
 /* ================= RESTART ================= */
 canvas.addEventListener("click", () => gameOver && location.reload());
 canvas.addEventListener("touchstart", () => gameOver && location.reload());
+
